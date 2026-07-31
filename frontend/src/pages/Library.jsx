@@ -34,7 +34,7 @@ function Library() {
     };
 
     return (
-        <div style={{ padding: "30px" }}>
+        <div className="page-container">
             <h1>📚 My Library</h1>
 
             {documents.length === 0 ? (

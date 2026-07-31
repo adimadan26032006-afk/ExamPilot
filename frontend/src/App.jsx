@@ -8,6 +8,7 @@ import NotFound from "./pages/NotFound";
 
 import Navbar from "./components/Navbar";
 
+
 function App() {
   return (
     <>
@@ -18,6 +19,7 @@ function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/upload" element={<Upload />} />
         <Route path="/library" element={<Library />} />
+        
         <Route path="*" element={<NotFound />} />
       </Routes>
     </>
