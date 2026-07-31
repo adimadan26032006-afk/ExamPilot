@@ -4,21 +4,18 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from database.database import SessionLocal
+from database.models import Upload
+
 from services.document_service import (
-    get_document_by_id,
     extract_document_text,
 )
-from database.models import Upload
+
 from services.ai_services import (
     generate_summary,
     generate_quiz,
     generate_flashcards,
     ask_ai,
 )
-from services.ocr_service import extract_text_with_ocr
-
-from pypdf import PdfReader
-import pdfplumber
 
 router = APIRouter()
 
@@ -37,6 +34,42 @@ class ChatRequest(BaseModel):
     question: str
 class FlashcardRequest(BaseModel):
     document_id: int
+
+# ==========================================
+# Shared Document Helper
+# ==========================================
+
+def get_document_text(document_id: int, db):
+
+    document = (
+        db.query(Upload)
+        .filter(Upload.id == document_id)
+        .first()
+    )
+
+    if document is None:
+        raise Exception("Document not found.")
+
+    if not document.extracted_text:
+
+        print(
+            f"[AI] No extracted text found for document {document.id}"
+        )
+
+        print("[AI] Re-extracting document...")
+
+        document.extracted_text = extract_document_text(
+            document.filepath
+        )
+
+        db.commit()
+        db.refresh(document)
+
+        print(
+            f"[AI] Recovered {len(document.extracted_text)} characters."
+        )
+
+    return document.extracted_text
 
 def get_document_text(document_id: int, db):
 
@@ -73,21 +106,10 @@ def generate_summary_endpoint(request: SummaryRequest):
 
     try:
 
-        print("Requested document id:", request.document_id)
-
-        document = get_document_by_id(
-           request.document_id,db,)
-
-
-        print("Document:", document)
-
-        extracted_text = document.get("extracted_text")
-
-        if not extracted_text:
-
-           print("Old document detected. Extracting text...")
-
-           extracted_text = document["extracted_text"]
+        extracted_text = get_document_text(
+            request.document_id,
+            db,
+        )
 
         summary = generate_summary(
             extracted_text,
