@@ -131,24 +131,16 @@ def generate_quiz_endpoint(request: QuizRequest):
 
     try:
 
-        document = get_document_by_id(
+        extracted_text = get_document_text(
             request.document_id,
             db,
         )
 
-        extracted_text = document.get("extracted_text")
-
-        if not extracted_text:
-
-          print("Old document detected. Extracting text...")
-
-          extracted_text = document["extracted_text"]
-
         quiz = generate_quiz(
-    extracted_text,
-    request.quiz_type,
-    request.difficulty,
-)
+            extracted_text,
+            request.quiz_type,
+            request.difficulty,
+        )
 
         quiz = json.loads(quiz)
 
@@ -158,6 +150,7 @@ def generate_quiz_endpoint(request: QuizRequest):
 
     finally:
         db.close()
+
 @router.post("/generate-flashcards")
 def generate_flashcards_endpoint(request: FlashcardRequest):
 
@@ -165,14 +158,14 @@ def generate_flashcards_endpoint(request: FlashcardRequest):
 
     try:
 
-        document = get_document_by_id(
+        extracted_text = get_document_text(
             request.document_id,
             db,
         )
 
-        extracted_text = document["extracted_text"]
-
-        flashcards = generate_flashcards(extracted_text)
+        flashcards = generate_flashcards(
+            extracted_text,
+        )
 
         flashcards = json.loads(flashcards)
 
@@ -182,6 +175,8 @@ def generate_flashcards_endpoint(request: FlashcardRequest):
 
     finally:
         db.close()
+
+
 @router.post("/ask-ai")
 def ask_ai_endpoint(request: ChatRequest):
 
@@ -189,15 +184,13 @@ def ask_ai_endpoint(request: ChatRequest):
 
     try:
 
-        document = get_document_by_id(
+        extracted_text = get_document_text(
             request.document_id,
             db,
         )
 
-        print(document["extracted_text"][:500])
-
         answer = ask_ai(
-            document["extracted_text"],
+            extracted_text,
             request.question,
         )
 
