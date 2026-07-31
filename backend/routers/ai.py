@@ -110,18 +110,36 @@ def generate_summary_endpoint(request: SummaryRequest):
             request.document_id,
             db,
         )
+        document = (
+    db.query(Upload)
+    .filter(Upload.id == request.document_id)
+    .first()
+)
+
+        if document.summary:
+
+           print("[CACHE] Returning cached summary.")
+
+           return {
+        "summary": document.summary
+    }
 
         summary = generate_summary(
-            extracted_text,
-            request.revision_style,
-        )
+    extracted_text,
+    request.revision_style,
+)
+
+        document.summary = summary
+
+        db.commit()
 
         return {
-            "summary": summary
-        }
-
+         "summary": summary
+}
     finally:
         db.close()
+
+
 
 
 @router.post("/generate-quiz")

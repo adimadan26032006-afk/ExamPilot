@@ -15,7 +15,7 @@ class Upload(Base):
     pages = Column(Integer)
 
     extracted_text = Column(Text)
-    summary = Column(Text, nullable=True)
+    summary=Column(Text,nullable=True)
 
     quiz = Column(Text, nullable=True)
 
