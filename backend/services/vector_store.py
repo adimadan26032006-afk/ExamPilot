@@ -6,7 +6,6 @@ client = chromadb.PersistentClient(
     path="./chroma_db"
 )
 
-
 collection = client.get_or_create_collection(
     name="exam_documents"
 )
@@ -20,6 +19,11 @@ def add_document_chunks(
     document_type,
     filename,
 ):
+    """
+    Store document chunks and their embeddings in ChromaDB.
+    Each chunk keeps metadata identifying its exam workspace,
+    document, type, and position.
+    """
 
     if not chunks:
         return 0
@@ -38,7 +42,6 @@ def add_document_chunks(
             chunk
         )
 
-        # ADD THE METADATA HERE
         metadatas.append(
             {
                 "exam_id": (
@@ -71,30 +74,79 @@ def add_document_chunks(
 
 def search_chunks(
     query_embedding,
-    exam_id,
+    exam_id=None,
+    document_id=None,
     n_results=5,
+    top_k=None,
 ):
     """
-    Search only inside the requested exam workspace.
+    Semantic search filtered by exam_id or document_id.
     """
+
+    k = top_k if top_k is not None else n_results
+
+    if document_id is not None:
+        where = {"document_id": str(document_id)}
+    elif exam_id is not None:
+        where = {"exam_id": str(exam_id)}
+    else:
+        raise ValueError("exam_id or document_id is required")
 
     results = collection.query(
         query_embeddings=[query_embedding],
-        n_results=n_results,
-        where={
-            "exam_id": str(exam_id)
-        },
+        n_results=k,
+        where=where,
     )
 
     return results
+
+
+def get_document_chunks(document_id):
+    """
+    Return all stored chunks for one document.
+    """
+
+    results = collection.get(
+        where={
+            "document_id": str(document_id)
+        },
+        include=[
+            "documents",
+            "metadatas",
+        ],
+    )
+
+    documents = results.get("documents", [])
+    metadatas = results.get("metadatas", [])
+
+    chunks = []
+
+    for document, metadata in zip(documents, metadatas):
+        chunks.append(
+            {
+                "text": document,
+                "metadata": metadata or {},
+            }
+        )
+
+    chunks.sort(
+        key=lambda item: item["metadata"].get("chunk", 0)
+    )
+
+    return chunks
+
 
 def search_exam_chunks(
     query_embedding,
     exam_id,
     top_k=5,
+    distance_threshold=0.7,
 ):
     """
-    Search only chunks belonging to one exam workspace.
+    Search chunks belonging to one exam.
+
+    Only return chunks that are sufficiently relevant
+    to the user's question.
     """
 
     results = collection.query(
@@ -105,4 +157,47 @@ def search_exam_chunks(
         },
     )
 
-    return results
+    distances = results.get("distances", [[]])[0]
+
+    if not distances:
+        return {
+            "documents": [],
+            "metadatas": [],
+            "distances": [],
+        }
+
+    relevant_indexes = [
+        i
+        for i, distance in enumerate(distances)
+        if distance <= distance_threshold
+    ]
+
+    return {
+        "documents": [
+            results["documents"][0][i]
+            for i in relevant_indexes
+        ],
+        "metadatas": [
+            results["metadatas"][0][i]
+            for i in relevant_indexes
+        ],
+        "distances": [
+            distances[i]
+            for i in relevant_indexes
+        ],
+    }
+
+
+def get_exam_chunks(exam_id):
+
+    results = collection.get(
+        where={
+            "exam_id": str(exam_id)
+        },
+        include=[
+            "documents",
+            "metadatas",
+        ],
+    )
+
+    return results.get("documents", [])

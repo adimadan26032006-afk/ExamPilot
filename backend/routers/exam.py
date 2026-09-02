@@ -7,8 +7,8 @@ from sqlalchemy import func
 from database.database import get_db
 from database.models import Exam
 from services.embedding_service import create_embedding
-from services.vector_db import search_exam_chunks
-from services.vector_db import get_exam_chunks
+from services.vector_store import search_exam_chunks
+from services.vector_store import get_exam_chunks
 from database.models import Upload, ExamDocument
 from services.ai_services import generate_subjective_test
 from database.models import (

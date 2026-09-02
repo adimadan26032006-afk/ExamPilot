@@ -1,7 +1,7 @@
 import re
 
 from services.embedding_service import create_embedding
-from services.vector_db import (
+from services.vector_store import (
     search_chunks,
     get_document_chunks,
 )
