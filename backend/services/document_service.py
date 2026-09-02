@@ -419,7 +419,6 @@ def process_document(
         filename=file.filename,
         filepath=filepath,
         pages=page_count,
-        exam_id=exam_id,
         document_type=document_type,
         extracted_text=extracted_text,
         year=pyq_year,

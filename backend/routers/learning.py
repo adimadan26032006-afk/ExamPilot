@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from database.database import get_db
-from database.models import Upload
+from database.models import Upload, ExamDocument
 import json
 from services.ai_services import _generate_with_retry
 
@@ -18,12 +18,16 @@ def generate_learning_roadmap(
 ):
 
     docs = (
-    db.query(Upload)
-    .filter(
-        Upload.exam_id == exam_id
+        db.query(Upload)
+        .join(
+            ExamDocument,
+            ExamDocument.document_id == Upload.id,
+        )
+        .filter(
+            ExamDocument.exam_id == exam_id
+        )
+        .all()
     )
-    .all()
-)
 
     if not docs:
         return {

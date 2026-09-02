@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Depends, Form
+from fastapi import APIRouter, UploadFile, File, Depends, Form, HTTPException
 from sqlalchemy.orm import Session
 
 from database.database import get_db
@@ -119,8 +119,12 @@ def get_exam_documents(
 ):
     documents = (
         db.query(Upload)
+        .join(
+            ExamDocument,
+            ExamDocument.document_id == Upload.id,
+        )
         .filter(
-            Upload.exam_id == exam_id
+            ExamDocument.exam_id == exam_id
         )
         .order_by(
             Upload.id.desc()
@@ -134,7 +138,7 @@ def get_exam_documents(
             "filename": doc.filename,
             "filepath": doc.filepath,
             "pages": doc.pages,
-            "exam_id": doc.exam_id,
+            "exam_id": exam_id,
             "document_type": doc.document_type,
             "has_text": bool(
                 doc.extracted_text

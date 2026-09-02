@@ -87,12 +87,6 @@ class Upload(Base):
     Integer,
 )
 
-    exam_id = Column(
-    Integer,
-    nullable=True,
-    index=True,
-)
-
     year = Column(
     Integer,
     nullable=True,
@@ -100,17 +94,9 @@ class Upload(Base):
 )
 
     # -----------------------------------------------------
-    # IMPORTANT:
-    #
-    # There is NO exam_id here anymore.
-    #
-    # A study material document can belong to multiple
-    # exam workspaces through ExamDocument.
-    # -----------------------------------------------------
-
-    # -----------------------------------------------------
     # study_material
     # pyq
+    # Documents belong to exam workspaces through ExamDocument.
     # -----------------------------------------------------
 
     document_type = Column(
@@ -219,33 +205,6 @@ class ChatMessage(Base):
     created_at = Column(
         DateTime,
         default=datetime.utcnow,
-    )
-
-# =========================================================
-# EXAM ↔ STUDY MATERIAL ASSOCIATION
-# =========================================================
-
-class ExamStudyMaterial(Base):
-    __tablename__ = "exam_study_materials"
-
-    id = Column(
-        Integer,
-        primary_key=True,
-        index=True,
-    )
-
-    exam_id = Column(
-        Integer,
-        ForeignKey("exams.id"),
-        nullable=False,
-        index=True,
-    )
-
-    document_id = Column(
-        Integer,
-        ForeignKey("uploads.id"),
-        nullable=False,
-        index=True,
     )
 
 class TestAttempt(Base):
