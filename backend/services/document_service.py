@@ -1,11 +1,21 @@
 import os
+import re
 
 import pdfplumber
 from fastapi import HTTPException
 from pypdf import PdfReader
 
-from database.models import Upload
+from services.vector_store import(
+    collection,
+    add_document_chunks,
+)
+
+from database.models import Upload, Exam, ExamDocument
+
 from services.ocr_service import extract_text_with_ocr
+
+from services.embedding_service import create_embedding
+from services.chunking_service import chunk_text
 
 
 # ==========================================
@@ -44,6 +54,7 @@ def extract_with_pypdf(filepath: str) -> str:
                 text += page_text + "\n"
 
     except Exception as e:
+
         log(f"PyPDF failed -> {e}")
 
     return text.strip()
@@ -65,6 +76,7 @@ def extract_with_pdfplumber(filepath: str) -> str:
                     text += page_text + "\n"
 
     except Exception as e:
+
         log(f"pdfplumber failed -> {e}")
 
     return text.strip()
@@ -79,16 +91,23 @@ def extract_document_text(filepath: str):
     log("Starting text extraction...")
 
     pypdf_text = extract_with_pypdf(filepath)
-    log(f"PyPDF extracted {len(pypdf_text)} characters")
+
+    log(
+        f"PyPDF extracted "
+        f"{len(pypdf_text)} characters"
+    )
 
     plumber_text = ""
 
     if len(pypdf_text) < MIN_TEXT_LENGTH:
 
-        plumber_text = extract_with_pdfplumber(filepath)
+        plumber_text = extract_with_pdfplumber(
+            filepath
+        )
 
         log(
-            f"pdfplumber extracted {len(plumber_text)} characters"
+            f"pdfplumber extracted "
+            f"{len(plumber_text)} characters"
         )
 
     best_text = (
@@ -99,36 +118,252 @@ def extract_document_text(filepath: str):
 
     extractor_used = (
         "pdfplumber"
-        if best_text == plumber_text and len(plumber_text) > 0
+        if (
+            best_text == plumber_text
+            and len(plumber_text) > 0
+        )
         else "PyPDF"
     )
+
+    # ------------------------------------------
+    # OCR fallback
+    # ------------------------------------------
 
     if len(best_text) < MIN_TEXT_LENGTH:
 
         log("Using OCR fallback...")
 
-        ocr_text = extract_text_with_ocr(filepath)
+        ocr_text = extract_text_with_ocr(
+            filepath
+        )
 
-        log(f"OCR extracted {len(ocr_text)} characters")
+        log(
+            f"OCR extracted "
+            f"{len(ocr_text)} characters"
+        )
 
         if len(ocr_text) > len(best_text):
 
             best_text = ocr_text
             extractor_used = "OCR"
 
-    log(f"Final extractor -> {extractor_used}")
-    log(f"Final text length -> {len(best_text)}")
+    log(
+        f"Final extractor -> "
+        f"{extractor_used}"
+    )
+
+    log(
+        f"Final text length -> "
+        f"{len(best_text)}"
+    )
 
     return best_text
+
+
+# ==========================================
+# Store Chroma Chunks
+# ==========================================
+
+def index_document(
+    document_id: int,
+    filename: str,
+    text: str,
+    document_type: str = "study_material",
+):
+    """
+    Create fresh ChromaDB chunks for a document.
+
+    Existing vectors for this document are deleted
+    first so re-indexing never creates duplicates.
+    """
+
+    collection.delete(
+        where={
+            "document_id": str(document_id)
+        }
+    )
+
+    chunks = chunk_text(text)
+
+    if not chunks:
+
+        log(
+            f"No chunks created for "
+            f"document {document_id}"
+        )
+
+        return 0
+
+    for i, chunk in enumerate(chunks):
+
+        embedding = create_embedding(chunk)
+
+        collection.add(
+            ids=[
+                f"{document_id}_{i}"
+            ],
+
+            embeddings=[
+                embedding
+            ],
+
+            documents=[
+                chunk
+            ],
+
+            metadatas=[
+                {
+                    "document_id": str(document_id),
+                    "filename": filename,
+                    "document_type": document_type,
+                    "chunk": i,
+                }
+            ],
+        )
+
+    log(
+        f"Indexed document "
+        f"{document_id}: "
+        f"{len(chunks)} chunks"
+    )
+
+    return len(chunks)
+
+def detect_pyq_year(text: str, filename: str = ""):
+
+    # ------------------------------------------
+    # 1. Look for year in extracted document text
+    # ------------------------------------------
+
+    if text:
+
+        patterns = [
+            r"(?:question\s*paper|examination|exam|semester\s*examination|end\s*semester)"
+            r".{0,80}?\b(20\d{2})\b",
+
+            r"\b(20\d{2})\b.{0,80}?"
+            r"(?:question\s*paper|examination|exam|semester)",
+        ]
+
+        for pattern in patterns:
+
+            match = re.search(
+                pattern,
+                text,
+                re.IGNORECASE | re.DOTALL,
+            )
+
+            if match:
+
+                year = int(match.group(1))
+
+                if 1990 <= year <= 2100:
+
+                    log(
+                        f"Detected PYQ year from document: {year}"
+                    )
+
+                    return year
+
+    # ------------------------------------------
+    # 2. Fallback to filename
+    # ------------------------------------------
+
+    if filename:
+
+        matches = re.findall(
+            r"\b(19\d{2}|20\d{2})\b",
+            filename,
+        )
+
+        if matches:
+
+            year = int(matches[-1])
+
+            if 1990 <= year <= 2100:
+
+                log(
+                    f"Detected PYQ year from filename: {year}"
+                )
+
+                return year
+
+    # ------------------------------------------
+    # 3. Could not determine year
+    # ------------------------------------------
+
+    log(
+        "Could not automatically determine PYQ year."
+    )
+
+    return None
 
 
 # ==========================================
 # Upload
 # ==========================================
 
-def process_document(file, db):
+def process_document(
+    file,
+    db,
+    exam_id=None,
+    document_type="study_material",
+):
 
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    # ==========================================
+    # Validate document type
+    # ==========================================
+
+    if document_type not in [
+        "study_material",
+        "pyq",
+    ]:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid document type",
+        )
+
+    # ==========================================
+    # Validate exam rules
+    # ==========================================
+
+    exam = None
+
+    if exam_id is not None:
+
+        exam = (
+            db.query(Exam)
+            .filter(Exam.id == exam_id)
+            .first()
+        )
+
+        if exam is None:
+
+            raise HTTPException(
+                status_code=404,
+                detail="Exam not found",
+            )
+
+    # ------------------------------------------
+    # PYQs MUST belong to an exam
+    # ------------------------------------------
+
+    if document_type == "pyq" and exam_id is None:
+
+        raise HTTPException(
+            status_code=400,
+            detail="A PYQ must belong to an exam workspace.",
+        )
+
+    # ==========================================
+    # Save uploaded file
+    # ==========================================
+
+    os.makedirs(
+        UPLOAD_FOLDER,
+        exist_ok=True,
+    )
 
     filepath = os.path.join(
         UPLOAD_FOLDER,
@@ -136,36 +371,146 @@ def process_document(file, db):
     )
 
     with open(filepath, "wb") as buffer:
-        buffer.write(file.file.read())
+
+        buffer.write(
+            file.file.read()
+        )
+
+    # ==========================================
+    # Get page count
+    # ==========================================
 
     reader = PdfReader(filepath)
-    page_count = len(reader.pages)
 
-    extracted_text = extract_document_text(filepath)
+    page_count = len(
+        reader.pages
+    )
+
+    # ==========================================
+    # Extract text
+    # ==========================================
+
+    extracted_text = extract_document_text(
+        filepath
+    )
+
+    # ==========================================
+    # Detect PYQ year
+    # ==========================================
+
+    pyq_year = None
+
+    if document_type == "pyq":
+
+        pyq_year = detect_pyq_year(
+            extracted_text,
+            file.filename,
+        )
+
+        log(
+            f"PYQ year -> {pyq_year}"
+        )
+
+    # ==========================================
+    # Create database record
+    # ==========================================
 
     upload = Upload(
         filename=file.filename,
         filepath=filepath,
         pages=page_count,
+        exam_id=exam_id,
+        document_type=document_type,
         extracted_text=extracted_text,
+        year=pyq_year,
     )
 
     db.add(upload)
+
     db.commit()
+
     db.refresh(upload)
+
+    # ==========================================
+    # Create workspace association
+    # ==========================================
+
+    if exam_id is not None:
+
+        association = ExamDocument(
+            exam_id=exam_id,
+            document_id=upload.id,
+        )
+
+        db.add(association)
+
+        db.commit()
+
+    # ==========================================
+    # CHUNK + EMBED + STORE IN CHROMA
+    # ==========================================
+
+    chunks = chunk_text(
+        upload.extracted_text
+    )
+
+    if chunks:
+
+        embeddings = [
+            create_embedding(chunk)
+            for chunk in chunks
+        ]
+
+        add_document_chunks(
+            chunks=chunks,
+            embeddings=embeddings,
+            exam_id=exam_id,
+            document_id=upload.id,
+            document_type=document_type,
+            filename=upload.filename,
+        )
+
+        log(
+            f"Stored {len(chunks)} chunks "
+            f"in ChromaDB."
+        )
+
+    # ==========================================
+    # Logging
+    # ==========================================
 
     log(
         f"Saved '{file.filename}' "
-        f"(ID={upload.id})"
+        f"(ID={upload.id}) "
+        f"(Exam={exam_id}) "
+        f"(Type={document_type}) "
+        f"(Year={upload.year})"
     )
+
+    # ==========================================
+    # Response
+    # ==========================================
 
     return {
         "message": "File uploaded successfully!",
+
         "id": upload.id,
+
         "filename": upload.filename,
+
         "filepath": upload.filepath,
+
         "pages": upload.pages,
-        "has_text": bool(upload.extracted_text),
+
+        "exam_id": exam_id,
+
+        "document_type": upload.document_type,
+
+        "year": upload.year,
+
+        "has_text": bool(
+            upload.extracted_text
+        ),
     }
 
 
@@ -177,7 +522,9 @@ def get_all_documents(db):
 
     documents = (
         db.query(Upload)
-        .order_by(Upload.id.desc())
+        .order_by(
+            Upload.id.desc()
+        )
         .all()
     )
 
@@ -187,7 +534,10 @@ def get_all_documents(db):
             "filename": doc.filename,
             "filepath": doc.filepath,
             "pages": doc.pages,
-            "has_text": bool(doc.extracted_text),
+            "document_type": doc.document_type,
+            "has_text": bool(
+                doc.extracted_text
+            ),
         }
         for doc in documents
     ]
@@ -197,11 +547,16 @@ def get_all_documents(db):
 # Read One Document
 # ==========================================
 
-def get_document_by_id(document_id, db):
+def get_document_by_id(
+    document_id,
+    db,
+):
 
     document = (
         db.query(Upload)
-        .filter(Upload.id == document_id)
+        .filter(
+            Upload.id == document_id
+        )
         .first()
     )
 
@@ -217,8 +572,11 @@ def get_document_by_id(document_id, db):
         "filename": document.filename,
         "filepath": document.filepath,
         "pages": document.pages,
+        "document_type": document.document_type,
         "extracted_text": document.extracted_text,
-        "has_text": bool(document.extracted_text),
+        "has_text": bool(
+            document.extracted_text
+        ),
     }
 
 
@@ -226,11 +584,16 @@ def get_document_by_id(document_id, db):
 # Delete
 # ==========================================
 
-def delete_document(document_id, db):
+def delete_document(
+    document_id,
+    db,
+):
 
     document = (
         db.query(Upload)
-        .filter(Upload.id == document_id)
+        .filter(
+            Upload.id == document_id
+        )
         .first()
     )
 
@@ -241,17 +604,71 @@ def delete_document(document_id, db):
             detail="Document not found",
         )
 
+    # ------------------------------------------
+    # Delete workspace associations
+    # ------------------------------------------
+
+    db.query(ExamDocument).filter(
+        ExamDocument.document_id == document.id
+    ).delete(
+        synchronize_session=False
+    )
+
+    # ------------------------------------------
+    # Delete Chroma vectors
+    # ------------------------------------------
+
+    collection.delete(
+        where={
+            "document_id": str(
+                document.id
+            )
+        }
+    )
+
+    # ------------------------------------------
+    # Delete PDF
+    # ------------------------------------------
+
     if (
         document.filepath
-        and os.path.exists(document.filepath)
+        and os.path.exists(
+            document.filepath
+        )
     ):
-        os.remove(document.filepath)
+
+        os.remove(
+            document.filepath
+        )
+
+    # ------------------------------------------
+    # Delete database record
+    # ------------------------------------------
 
     db.delete(document)
+
     db.commit()
 
-    log(f"Deleted document {document_id}")
+    log(
+        f"Deleted document "
+        f"{document_id}"
+    )
 
     return {
         "message": "Document deleted successfully!"
+    }
+
+
+# ==========================================
+# Dashboard Stats
+# ==========================================
+
+def get_dashboard_stats(db):
+
+    total_documents = (
+        db.query(Upload).count()
+    )
+
+    return {
+        "total_documents": total_documents
     }

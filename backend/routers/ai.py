@@ -2,6 +2,7 @@ import json
 
 from fastapi import APIRouter
 from pydantic import BaseModel
+from services.session_service import create_session
 
 from database.database import SessionLocal
 from database.models import Upload
@@ -16,6 +17,10 @@ from services.ai_services import (
     generate_flashcards,
     ask_ai,
 )
+from services.retrieval_service import retrieve_relevant_chunks
+from services.document_service import get_document_by_id
+from services.session_service import get_document_sessions
+from services.chat_service import get_session_messages
 
 router = APIRouter()
 
@@ -30,46 +35,17 @@ class QuizRequest(BaseModel):
     quiz_type: str
     difficulty: str
 class ChatRequest(BaseModel):
-    document_id: int
+    session_id: int
     question: str
 class FlashcardRequest(BaseModel):
+    document_id: int
+class CreateSessionRequest(BaseModel):
     document_id: int
 
 # ==========================================
 # Shared Document Helper
 # ==========================================
 
-def get_document_text(document_id: int, db):
-
-    document = (
-        db.query(Upload)
-        .filter(Upload.id == document_id)
-        .first()
-    )
-
-    if document is None:
-        raise Exception("Document not found.")
-
-    if not document.extracted_text:
-
-        print(
-            f"[AI] No extracted text found for document {document.id}"
-        )
-
-        print("[AI] Re-extracting document...")
-
-        document.extracted_text = extract_document_text(
-            document.filepath
-        )
-
-        db.commit()
-        db.refresh(document)
-
-        print(
-            f"[AI] Recovered {len(document.extracted_text)} characters."
-        )
-
-    return document.extracted_text
 
 def get_document_text(document_id: int, db):
 
@@ -98,7 +74,6 @@ def get_document_text(document_id: int, db):
 
 
 
-
 @router.post("/generate-summary")
 def generate_summary_endpoint(request: SummaryRequest):
 
@@ -106,41 +81,166 @@ def generate_summary_endpoint(request: SummaryRequest):
 
     try:
 
-        extracted_text = get_document_text(
-            request.document_id,
-            db,
-        )
+        # ==========================================
+        # FIND DOCUMENT
+        # ==========================================
+
         document = (
-    db.query(Upload)
-    .filter(Upload.id == request.document_id)
-    .first()
-)
+            db.query(Upload)
+            .filter(
+                Upload.id == request.document_id
+            )
+            .first()
+        )
 
-        if document.summary:
+        if document is None:
 
-           print("[CACHE] Returning cached summary.")
+            return {
+                "error": "Document not found."
+            }
 
-           return {
-        "summary": document.summary
-    }
+        # ==========================================
+        # SUMMARY STYLE → DATABASE COLUMN
+        # ==========================================
+
+        summary_columns = {
+
+            # Frontend names WITH emojis
+            "📄 Short Notes":
+                "short_summary",
+
+            "📖 Detailed Notes":
+                "detailed_summary",
+
+            "🎯 Exam Focus":
+                "exam_focused_summary",
+
+            "🌙 Last-Minute Revision":
+                "last_night_summary",
+
+            # Names WITHOUT emojis
+            "Short Notes":
+                "short_summary",
+
+            "Detailed Notes":
+                "detailed_summary",
+
+            "Exam Focus":
+                "exam_focused_summary",
+
+            "Last-Minute Revision":
+                "last_night_summary",
+
+            # Short internal names
+            "Short":
+                "short_summary",
+
+            "Detailed":
+                "detailed_summary",
+
+            "Exam":
+                "exam_focused_summary",
+
+            "Last Night":
+                "last_night_summary",
+        }
+
+        # ==========================================
+        # DETERMINE CORRECT CACHE COLUMN
+        # ==========================================
+
+        column_name = summary_columns.get(
+            request.revision_style
+        )
+
+        print(
+            f"[SUMMARY] "
+            f"Style='{request.revision_style}' "
+            f"-> Column='{column_name}'"
+        )
+
+        # ==========================================
+        # INVALID STYLE
+        # ==========================================
+
+        if column_name is None:
+
+            return {
+                "error": "Invalid revision style."
+            }
+
+        # ==========================================
+        # CHECK CACHE
+        # ==========================================
+
+        cached_summary = getattr(
+            document,
+            column_name,
+            None,
+        )
+
+        if cached_summary:
+
+            print(
+                f"[SUMMARY] "
+                f"Returning cached "
+                f"{request.revision_style} summary..."
+            )
+
+            return {
+                "summary": cached_summary,
+                "cached": True,
+            }
+
+        # ==========================================
+        # CACHE MISS → GENERATE NEW SUMMARY
+        # ==========================================
+
+        print(
+            f"[SUMMARY] "
+            f"Generating new "
+            f"{request.revision_style} summary..."
+        )
 
         summary = generate_summary(
-    extracted_text,
-    request.revision_style,
-)
+            document.extracted_text,
+            request.revision_style,
+        )
 
-        document.summary = summary
+        # ==========================================
+        # SAVE TO CORRECT COLUMN
+        # ==========================================
+
+        setattr(
+            document,
+            column_name,
+            summary,
+        )
 
         db.commit()
 
+        print(
+            f"[SUMMARY] "
+            f"Saved summary to '{column_name}'."
+        )
+
+        # ==========================================
+        # RESPONSE
+        # ==========================================
+
         return {
-         "summary": summary
-}
+
+            "summary": summary,
+
+            "cached": False,
+
+            "style": request.revision_style,
+
+        }
+
     finally:
+
         db.close()
-
-
-
 
 @router.post("/generate-quiz")
 def generate_quiz_endpoint(request: QuizRequest):
@@ -149,21 +249,30 @@ def generate_quiz_endpoint(request: QuizRequest):
 
     try:
 
-        extracted_text = get_document_text(
-            request.document_id,
-            db,
-        )
+        document_model = db.query(Upload).filter(
+            Upload.id == request.document_id
+        ).first()
+
+        if document_model is None:
+            return {
+                "error": "Document not found."
+            }
 
         quiz = generate_quiz(
-            extracted_text,
+            document_model.extracted_text,
             request.quiz_type,
             request.difficulty,
         )
 
+        document_model.quiz = quiz
+
+        db.commit()
+
         quiz = json.loads(quiz)
 
         return {
-            "quiz": quiz
+            "quiz": quiz,
+            "cached": False,
         }
 
     finally:
@@ -194,27 +303,68 @@ def generate_flashcards_endpoint(request: FlashcardRequest):
     finally:
         db.close()
 
-
-@router.post("/ask-ai")
-def ask_ai_endpoint(request: ChatRequest):
+@router.post("/create-session")
+def create_session_endpoint(request: CreateSessionRequest):
 
     db = SessionLocal()
 
     try:
 
-        extracted_text = get_document_text(
+        # Verify document exists
+        get_document_by_id(
             request.document_id,
             db,
         )
 
-        answer = ask_ai(
-            extracted_text,
-            request.question,
+        session = create_session(
+            request.document_id,
         )
 
         return {
-            "answer": answer
+            "session_id": session.id,
+            "title": session.title,
         }
 
     finally:
+
         db.close()
+
+
+@router.post("/ask-ai")
+def ask_ai_endpoint(request: ChatRequest):
+
+    answer = ask_ai(
+        session_id=request.session_id,
+        question=request.question,
+    )
+
+    return {
+        "answer": answer
+    }
+
+@router.get("/chat-sessions/{document_id}")
+def get_chat_sessions(document_id: int):
+
+    sessions = get_document_sessions(document_id)
+
+    return [
+        {
+            "id": session.id,
+            "title": session.title,
+            "created_at": session.created_at,
+        }
+        for session in sessions
+    ]
+@router.get("/chat-history/{session_id}")
+def get_chat_history(session_id: int):
+
+    messages = get_session_messages(session_id)
+
+    return [
+        {
+            "role": message.role,
+            "message": message.message,
+            "created_at": message.created_at,
+        }
+        for message in messages
+    ]

@@ -1,68 +1,155 @@
-import { useState } from "react";
-
+import { useEffect, useState } from "react";
 import ChatMessage from "./ChatMessage";
 
-export default function ChatPage({ document }) {
+const API_BASE = "http://localhost:8000";
+
+export default function ChatPage({
+    document,
+    sessionId,
+}) {
 
     const [messages, setMessages] = useState([]);
-
     const [question, setQuestion] = useState("");
-
     const [loading, setLoading] = useState(false);
+
+    // ----------------------------
+    // Load previous chat messages
+    // ----------------------------
+
+    useEffect(() => {
+
+        async function loadHistory() {
+
+            if (!sessionId) {
+                setMessages([]);
+                return;
+            }
+
+            try {
+
+                const response = await fetch(
+                    `${API_BASE}/chat-history/${sessionId}`
+                );
+
+                if (!response.ok) {
+                    throw new Error(
+                        "Failed to load chat history."
+                    );
+                }
+
+                const data = await response.json();
+
+                const formattedMessages = data.map((msg) => ({
+                    role: msg.role,
+                    text: msg.message,
+                }));
+
+                setMessages(formattedMessages);
+
+            } catch (error) {
+
+                console.error(
+                    "Chat history error:",
+                    error
+                );
+
+                setMessages([]);
+
+            }
+
+        }
+
+        loadHistory();
+
+    }, [sessionId]);
+
+    // ----------------------------
+    // Ask AI
+    // ----------------------------
 
     async function askQuestion() {
 
-        if (question.trim() === "") return;
+        if (!question.trim() || loading) {
+            return;
+        }
 
-        const userMessage = {
-            role: "user",
-            text: question,
-        };
+        if (!sessionId) {
 
-        setMessages(prev => [...prev, userMessage]);
+            alert("Please create a new chat first.");
 
+            return;
+
+        }
+
+        const userQuestion = question.trim();
+
+        // Show user message immediately
+        setMessages((prev) => [
+            ...prev,
+            {
+                role: "user",
+                text: userQuestion,
+            },
+        ]);
+
+        setQuestion("");
         setLoading(true);
 
         try {
 
             const response = await fetch(
-                "http://localhost:8000/ask-ai",
+                `${API_BASE}/ask-ai`,
                 {
                     method: "POST",
+
                     headers: {
                         "Content-Type": "application/json",
                     },
+
                     body: JSON.stringify({
-                        document_id: document.id,
-                        question: question,
+                        session_id: sessionId,
+                        question: userQuestion,
                     }),
                 }
             );
 
+            if (!response.ok) {
+                throw new Error(
+                    "Failed to get AI response."
+                );
+            }
+
             const data = await response.json();
 
-            setMessages(prev => [
-
+            setMessages((prev) => [
                 ...prev,
-
                 {
                     role: "assistant",
                     text: data.answer,
-                }
-
+                },
             ]);
 
         } catch (error) {
 
-            console.error(error);
+            console.error(
+                "AI request error:",
+                error
+            );
 
-            alert("Failed to contact AI.");
+            setMessages((prev) => [
+                ...prev,
+                {
+                    role: "assistant",
+                    text:
+                        "⚠️ I couldn't get a response right now. Please try again.",
+                },
+            ]);
+
+        } finally {
+
+            setLoading(false);
 
         }
-
-        setQuestion("");
-
-        setLoading(false);
 
     }
 
@@ -71,13 +158,7 @@ export default function ChatPage({ document }) {
         <div>
 
             <h2>
-
-                Chat with
-
-                {" "}
-
-                {document.filename}
-
+                Chat with {document.filename}
             </h2>
 
             <br />
@@ -116,6 +197,18 @@ export default function ChatPage({ document }) {
                 onChange={(e) =>
                     setQuestion(e.target.value)
                 }
+                onKeyDown={(e) => {
+
+                    if (
+                        e.key === "Enter" &&
+                        !loading
+                    ) {
+
+                        askQuestion();
+
+                    }
+
+                }}
                 placeholder="Ask anything from your notes..."
             />
 

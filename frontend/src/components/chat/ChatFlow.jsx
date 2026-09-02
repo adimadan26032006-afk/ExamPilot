@@ -1,14 +1,19 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getSessions } from "../../api/chat";
 
 import SourcePicker from "../revision/SourcePicker";
 import DocumentPicker from "../common/DocumentPicker";
 import ChatPage from "./ChatPage";
+import ChatSidebar from "./ChatSidebar";
 
 export default function ChatFlow({ onExit }) {
 
     const [step, setStep] = useState("source");
 
     const [selectedDocument, setSelectedDocument] = useState(null);
+    const [sessions, setSessions] = useState([]);
+
+    const [currentSession, setCurrentSession] = useState(null);
 
     function handleSourceSelect(source) {
 
@@ -53,6 +58,33 @@ export default function ChatFlow({ onExit }) {
         }
 
     }
+    useEffect(() => {
+
+    if (!selectedDocument) return;
+
+    async function loadSessions() {
+
+        try {
+
+            const data = await getSessions(
+                selectedDocument.id
+            );
+
+            setSessions(data);
+
+        }
+
+        catch (err) {
+
+            console.error(err);
+
+        }
+
+    }
+
+    loadSessions();
+
+}, [selectedDocument]);
 
     return (
 
@@ -91,11 +123,75 @@ export default function ChatFlow({ onExit }) {
 
             {step === "chat" && (
 
-                <ChatPage
-                    document={selectedDocument}
-                />
+    <div
+        style={{
+            display: "flex",
+            height: "80vh",
+            border: "1px solid #ddd",
+            borderRadius: "12px",
+            overflow: "hidden",
+            marginTop: "20px",
+        }}
+    >
 
-            )}
+        <ChatSidebar
+    sessions={sessions}
+    currentSession={currentSession}
+    onSessionSelect={(session) => {
+        setCurrentSession(session);
+    }}
+   onNewChat={async () => {
+
+    try {
+
+        const { createSession } = await import("../../api/chat");
+
+        const data = await createSession(
+            selectedDocument.id
+        );
+
+        const newSession = {
+            id: data.session_id,
+            title: data.title,
+        };
+
+        setSessions(prev => [
+            newSession,
+            ...prev,
+        ]);
+
+        setCurrentSession(newSession);
+
+    }
+
+    catch (err) {
+
+        console.error(err);
+
+        alert("Failed to create chat.");
+
+    }
+
+}}
+/>
+
+        <div
+            style={{
+                flex: 1,
+                padding: "20px",
+                overflow: "auto",
+            }}
+        >
+
+            <ChatPage
+    document={selectedDocument}
+    sessionId={currentSession?.id}
+/>
+        </div>
+
+    </div>
+
+)}
 
         </div>
 

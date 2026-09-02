@@ -1,3 +1,5 @@
+import MarkdownAnswer from "../MarkdownAnswer";
+
 export default function ChatMessage({
     role,
     text,
@@ -26,19 +28,21 @@ export default function ChatMessage({
                         ? "#2563eb"
                         : "#2e2e2e",
                     color: "white",
-                    whiteSpace: "pre-wrap",
                 }}
             >
 
                 <strong>
-
                     {isUser ? "You" : "ExamPilot"}
-
                 </strong>
 
-                <br /><br />
+                <br />
+                <br />
 
-                {text}
+                {isUser ? (
+                    text
+                ) : (
+                    <MarkdownAnswer text={text} />
+                )}
 
             </div>
 
