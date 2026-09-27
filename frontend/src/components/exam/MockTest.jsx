@@ -63,7 +63,7 @@ export default function MockTest({ exam, onBack }) {
         });
     }
 
-    function submitTest() {
+    async function submitTest() {
         if (!test?.questions) {
             return;
         }
@@ -96,20 +96,31 @@ export default function MockTest({ exam, onBack }) {
                 : 0;
 
         const incorrect = attempted - score;
-        fetch(
-    `http://localhost:8000/exams/${exam.id}/save-objective-attempt`,
-    {
-        method: "POST",
-        headers: {
-            "Content-Type":
-                "application/json",
-        },
-        body: JSON.stringify({
-            score,
-            total_marks: total,
-        }),
-    }
-);
+        let saveError = null;
+
+        try {
+            const response = await fetch(
+                `http://localhost:8000/exams/${exam.id}/save-objective-attempt`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type":
+                            "application/json",
+                    },
+                    body: JSON.stringify({
+                        score,
+                        total_marks: total,
+                    }),
+                }
+            );
+
+            if (!response.ok) {
+                throw new Error("Failed to save test attempt");
+            }
+        } catch (error) {
+            console.error("ATTEMPT SAVE ERROR:", error);
+            saveError = "Result calculated locally; saving the attempt failed.";
+        }
 
         setResult({
     score,
@@ -118,6 +129,7 @@ export default function MockTest({ exam, onBack }) {
     unanswered,
     incorrect,
     percentage,
+    saveError,
 
     testDate: new Date().toLocaleString(),
 });
@@ -461,6 +473,12 @@ export default function MockTest({ exam, onBack }) {
                         >
                             {percentage}%
                         </div>
+
+                        {result.saveError && (
+                            <p style={{ color: "#f59e0b" }}>
+                                {result.saveError}
+                            </p>
+                        )}
 
                         <p
                             style={{

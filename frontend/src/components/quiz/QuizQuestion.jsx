@@ -6,7 +6,7 @@ export default function QuizQuestion({
 }) {
 
     return (
-        <div>
+        <div className="quiz-question-motion">
 
             <h2>
                 Question {questionNumber}

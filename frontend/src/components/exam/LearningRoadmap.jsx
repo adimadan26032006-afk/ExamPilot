@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { observeReveal } from "../../utils/motion";
 
 function formatFormula(rawFormula) {
     const raw = String(rawFormula || "").trim();
@@ -47,6 +48,8 @@ export default function LearningRoadmap({
     const [copiedFormula, setCopiedFormula] =
         useState(null);
 
+    useEffect(() => observeReveal(".roadmap-page .scroll-reveal"), [roadmap]);
+
     async function generateRoadmap() {
         try {
             setLoading(true);
@@ -67,6 +70,19 @@ export default function LearningRoadmap({
                     data.error ||
                     "Failed to generate roadmap."
                 );
+            }
+
+            const hasRoadmapContent = [
+                "high_priority_topics",
+                "frequently_asked_concepts",
+                "important_formulas",
+                "common_mistakes",
+                "predicted_questions",
+                "revision_sheet",
+            ].some((key) => Array.isArray(data?.[key]) && data[key].length > 0);
+
+            if (!hasRoadmapContent) {
+                throw new Error("The roadmap generator returned an empty roadmap. Please try again.");
             }
 
             setRoadmap(data);
@@ -209,7 +225,7 @@ export default function LearningRoadmap({
                     {/* HIGH PRIORITY */}
 
                     <div
-                        className="roadmap-section roadmap-priority"
+                        className="roadmap-section roadmap-priority scroll-reveal"
                         style={sectionStyle}
                     >
                         <h2>
@@ -239,7 +255,7 @@ export default function LearningRoadmap({
                     {/* CONCEPTS */}
 
                     <div
-                        className="roadmap-section roadmap-concepts"
+                        className="roadmap-section roadmap-concepts scroll-reveal"
                         style={sectionStyle}
                     >
                         <h2>
@@ -269,7 +285,7 @@ export default function LearningRoadmap({
                     {/* FORMULAS */}
 
                     <div
-                        className="roadmap-section roadmap-formulas"
+                        className="roadmap-section roadmap-formulas scroll-reveal"
                         style={sectionStyle}
                     >
                         <h2>
@@ -328,7 +344,7 @@ export default function LearningRoadmap({
                     {/* COMMON MISTAKES */}
 
                     <div
-                        className="roadmap-section roadmap-mistakes"
+                        className="roadmap-section roadmap-mistakes scroll-reveal"
                         style={sectionStyle}
                     >
                         <h2>
@@ -358,7 +374,7 @@ export default function LearningRoadmap({
                     {/* PREDICTED QUESTIONS */}
 
                     <div
-                        className="roadmap-section roadmap-questions"
+                        className="roadmap-section roadmap-questions scroll-reveal"
                         style={sectionStyle}
                     >
                         <h2>
@@ -412,7 +428,7 @@ export default function LearningRoadmap({
                     {/* REVISION SHEET */}
 
                     <div
-                        className="roadmap-section roadmap-revision"
+                        className="roadmap-section roadmap-revision scroll-reveal"
                         style={sectionStyle}
                     >
                         <h2>
@@ -459,7 +475,7 @@ export default function LearningRoadmap({
                     {/* LEARNING ACTIONS */}
 
                     <div
-                        className="roadmap-section roadmap-actions"
+                        className="roadmap-section roadmap-actions scroll-reveal"
                         style={sectionStyle}
                     >
                         <h2>

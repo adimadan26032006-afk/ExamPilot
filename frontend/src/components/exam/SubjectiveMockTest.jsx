@@ -22,6 +22,8 @@ export default function SubjectiveMockTest({
     useState({});
     const [evaluation, setEvaluation] =
     useState(null);
+    const [evaluationError, setEvaluationError] =
+    useState(null);
 
     const [evaluating, setEvaluating] =
     useState(false);
@@ -222,6 +224,7 @@ export default function SubjectiveMockTest({
     async function submitAnswers() {
 
     setEvaluating(true);
+    setEvaluationError(null);
 
     try {
 
@@ -247,16 +250,28 @@ export default function SubjectiveMockTest({
         const data =
             await response.json();
 
-        setEvaluation(data);
+        if (!response.ok) {
+            throw new Error(
+                data.detail || "Failed to evaluate answers."
+            );
+        }
 
+        if (
+            typeof data.obtained_marks !== "number" ||
+            typeof data.total_marks !== "number" ||
+            !Array.isArray(data.feedback)
+        ) {
+            throw new Error("The evaluation response was invalid.");
+        }
+
+        setEvaluation(data);
         setShowEvaluation(true);
 
     } catch (error) {
 
         console.error(error);
-
-        alert(
-            "Failed to evaluate answers."
+        setEvaluationError(
+            error.message || "Failed to evaluate answers."
         );
 
     } finally {
@@ -264,7 +279,7 @@ export default function SubjectiveMockTest({
         setEvaluating(false);
 
     }
-}  
+}
     if (
     showEvaluation &&
     evaluation
@@ -316,7 +331,7 @@ export default function SubjectiveMockTest({
                             marginTop:
                                 "20px",
                         }}
-                        
+
                     >
                         <h2>
                             Q
@@ -378,9 +393,15 @@ export default function SubjectiveMockTest({
 >
     <button
     onClick={submitAnswers}
+    disabled={evaluating}
 >
-    Submit Answers
+    {evaluating ? "Evaluating..." : "Submit Answers"}
 </button>
+{evaluationError && (
+    <p style={{ color: "#ef4444" }}>
+        {evaluationError}
+    </p>
+)}
 {
     evaluation && (
         <div

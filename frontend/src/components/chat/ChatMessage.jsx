@@ -9,34 +9,13 @@ export default function ChatMessage({
 
     return (
 
-        <div
-            style={{
-                display: "flex",
-                justifyContent: isUser
-                    ? "flex-end"
-                    : "flex-start",
-                marginBottom: "15px",
-            }}
-        >
-
-            <div
-                style={{
-                    maxWidth: "70%",
-                    padding: "14px",
-                    borderRadius: "15px",
-                    background: isUser
-                        ? "#2563eb"
-                        : "#2e2e2e",
-                    color: "white",
-                }}
-            >
-
-                <strong>
-                    {isUser ? "You" : "ExamPilot"}
-                </strong>
-
-                <br />
-                <br />
+        <div className={`chat-message-row ${isUser ? "from-user" : "from-ai"}`}>
+            <div className="chat-avatar">{isUser ? "Y" : "✦"}</div>
+            <div className="chat-message-bubble">
+                <div className="chat-message-meta">
+                    <strong>{isUser ? "You" : "ExamPilot"}</strong>
+                    <span>{isUser ? "You asked" : "AI tutor"}</span>
+                </div>
 
                 {isUser ? (
                     text
@@ -45,7 +24,6 @@ export default function ChatMessage({
                 )}
 
             </div>
-
         </div>
 
     );

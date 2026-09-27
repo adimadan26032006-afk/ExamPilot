@@ -155,24 +155,16 @@ export default function ChatPage({
 
     return (
 
-        <div>
+        <div className="chat-page">
+            <div className="chat-page-heading">
+                <div>
+                    <p className="chat-eyebrow">DOCUMENT CHAT</p>
+                    <h2>{document.filename}</h2>
+                </div>
+                <div className="chat-doc-badge">▤ Notes</div>
+            </div>
 
-            <h2>
-                Chat with {document.filename}
-            </h2>
-
-            <br />
-
-            <div
-                style={{
-                    border: "1px solid gray",
-                    padding: "20px",
-                    minHeight: "350px",
-                    maxHeight: "450px",
-                    overflowY: "auto",
-                    borderRadius: "12px",
-                }}
-            >
+            <div className="chat-history">
 
                 {messages.map((message, index) => (
 
@@ -186,14 +178,9 @@ export default function ChatPage({
 
             </div>
 
-            <br />
-
-            <input
-                style={{
-                    width: "70%",
-                    padding: "12px",
-                }}
-                value={question}
+            <div className="chat-composer">
+                <input
+                    value={question}
                 onChange={(e) =>
                     setQuestion(e.target.value)
                 }
@@ -209,19 +196,20 @@ export default function ChatPage({
                     }
 
                 }}
-                placeholder="Ask anything from your notes..."
-            />
+                    placeholder="Ask anything from your notes..."
+                    aria-label="Ask anything from your notes"
+                />
 
-            <button
-                onClick={askQuestion}
-                disabled={loading}
-            >
-
-                {loading
-                    ? "Thinking..."
-                    : "Send"}
-
-            </button>
+                <button
+                    className="chat-send-button"
+                    onClick={askQuestion}
+                    disabled={loading}
+                    aria-label={loading ? "Thinking" : "Send message"}
+                >
+                    {loading ? "Thinking..." : "Send ↗"}
+                </button>
+            </div>
+            <p className="chat-hint">Press <kbd>Enter</kbd> to send · Answers are grounded in your selected notes</p>
 
         </div>
 

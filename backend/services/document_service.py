@@ -1,6 +1,6 @@
 import os
 import re
-
+import uuid
 import pdfplumber
 from fastapi import HTTPException
 from pypdf import PdfReader
@@ -365,10 +365,22 @@ def process_document(
         exist_ok=True,
     )
 
-    filepath = os.path.join(
-        UPLOAD_FOLDER,
-        file.filename,
-    )
+    original_filename = os.path.basename(file.filename or "upload.pdf")
+    _, extension = os.path.splitext(original_filename)
+    if extension.lower() != ".pdf":
+        raise HTTPException(
+            status_code=400,
+            detail="Only PDF files are supported",
+        )
+
+    safe_stem = re.sub(
+        r"[^A-Za-z0-9._-]+",
+        "_",
+        os.path.splitext(original_filename)[0],
+    ).strip("._") or "upload"
+    stored_filename = f"{safe_stem}_{uuid.uuid4().hex}.pdf"
+    upload_root = os.path.abspath(UPLOAD_FOLDER)
+    filepath = os.path.join(upload_root, stored_filename)
 
     with open(filepath, "wb") as buffer:
 
@@ -404,7 +416,7 @@ def process_document(
 
         pyq_year = detect_pyq_year(
             extracted_text,
-            file.filename,
+            original_filename,
         )
 
         log(
@@ -416,7 +428,7 @@ def process_document(
     # ==========================================
 
     upload = Upload(
-        filename=file.filename,
+        filename=original_filename,
         filepath=filepath,
         pages=page_count,
         exam_id=exam_id,
@@ -425,55 +437,68 @@ def process_document(
         year=pyq_year,
     )
 
-    db.add(upload)
+    try:
+        db.add(upload)
+        db.flush()
 
-    db.commit()
+        # ==========================================
+        # Create workspace association
+        # ==========================================
 
-    db.refresh(upload)
+        if exam_id is not None:
+            association = ExamDocument(
+                exam_id=exam_id,
+                document_id=upload.id,
+            )
+            db.add(association)
 
-    # ==========================================
-    # Create workspace association
-    # ==========================================
+        # ==========================================
+        # CHUNK + EMBED + STORE IN CHROMA
+        # ==========================================
 
-    if exam_id is not None:
+        chunks = chunk_text(upload.extracted_text)
 
-        association = ExamDocument(
-            exam_id=exam_id,
-            document_id=upload.id,
-        )
+        if chunks:
+            embeddings = [
+                create_embedding(chunk)
+                for chunk in chunks
+            ]
 
-        db.add(association)
+            add_document_chunks(
+                chunks=chunks,
+                embeddings=embeddings,
+                exam_id=exam_id,
+                document_id=upload.id,
+                document_type=document_type,
+                filename=upload.filename,
+            )
+
+            log(
+                f"Stored {len(chunks)} chunks "
+                f"in ChromaDB."
+            )
 
         db.commit()
+        db.refresh(upload)
 
+    except Exception as error:
+        db.rollback()
+        try:
+            collection.delete(
+                where={"document_id": str(upload.id)}
+            )
+        except Exception as cleanup_error:
+            log(f"Vector cleanup failed -> {cleanup_error}")
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        log(f"Upload processing failed -> {error}")
+        raise HTTPException(
+            status_code=500,
+            detail="Upload processing failed; no document was saved.",
+        ) from error
     # ==========================================
-    # CHUNK + EMBED + STORE IN CHROMA
+    # Upload is committed only after indexing succeeds
     # ==========================================
-
-    chunks = chunk_text(
-        upload.extracted_text
-    )
-
-    if chunks:
-
-        embeddings = [
-            create_embedding(chunk)
-            for chunk in chunks
-        ]
-
-        add_document_chunks(
-            chunks=chunks,
-            embeddings=embeddings,
-            exam_id=exam_id,
-            document_id=upload.id,
-            document_type=document_type,
-            filename=upload.filename,
-        )
-
-        log(
-            f"Stored {len(chunks)} chunks "
-            f"in ChromaDB."
-        )
 
     # ==========================================
     # Logging

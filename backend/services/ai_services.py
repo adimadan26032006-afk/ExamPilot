@@ -4,10 +4,6 @@ from services.chat_service import (
     save_message,
     get_recent_messages,
 )
-from services.chat_service import (
-    save_message,
-    get_recent_messages,
-)
 
 from services.session_service import (
     get_session,

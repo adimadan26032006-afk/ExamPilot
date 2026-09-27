@@ -5,6 +5,7 @@ import SourcePicker from "../revision/SourcePicker";
 import DocumentPicker from "../common/DocumentPicker";
 import ChatPage from "./ChatPage";
 import ChatSidebar from "./ChatSidebar";
+import "./Chat.css";
 
 export default function ChatFlow({ onExit }) {
 
@@ -88,21 +89,23 @@ export default function ChatFlow({ onExit }) {
 
     return (
 
-        <div style={{ padding: "30px" }}>
+        <div className="chat-shell">
+            <div className="chat-topbar">
+                <button className="chat-back-button" onClick={handleBack}>
+                    <span aria-hidden="true">←</span>
+                    {step === "source" ? "Dashboard" : "Back"}
+                </button>
+                <div className="chat-brand">
+                    <span className="chat-brand-mark">✦</span>
+                    <div>
+                        <p className="chat-eyebrow">EXAMPILOT AI</p>
+                        <h1>Ask AI</h1>
+                    </div>
+                </div>
+                <span className="chat-status"><span /> Ready to help</span>
+            </div>
 
-            <button onClick={handleBack}>
-
-                {step === "source"
-                    ? "← Dashboard"
-                    : "← Back"}
-
-            </button>
-
-            <br /><br />
-
-            <h1>💬 Ask AI</h1>
-
-            <hr />
+            <div className="chat-divider" />
 
             {step === "source" && (
 
@@ -123,16 +126,7 @@ export default function ChatFlow({ onExit }) {
 
             {step === "chat" && (
 
-    <div
-        style={{
-            display: "flex",
-            height: "80vh",
-            border: "1px solid #ddd",
-            borderRadius: "12px",
-            overflow: "hidden",
-            marginTop: "20px",
-        }}
-    >
+    <div className="chat-workspace">
 
         <ChatSidebar
     sessions={sessions}
@@ -175,13 +169,7 @@ export default function ChatFlow({ onExit }) {
 }}
 />
 
-        <div
-            style={{
-                flex: 1,
-                padding: "20px",
-                overflow: "auto",
-            }}
-        >
+        <div className="chat-main-panel">
 
             <ChatPage
     document={selectedDocument}

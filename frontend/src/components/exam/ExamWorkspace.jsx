@@ -28,6 +28,8 @@ export default function ExamWorkspace({
         useState(false);
     const [analytics, setAnalytics] =
         useState(null);
+    const [analyticsError, setAnalyticsError] =
+        useState(null);
     const navigate = useNavigate();
     const [showLearningRoadmap, setShowLearningRoadmap] =
         useState(false);
@@ -63,18 +65,36 @@ export default function ExamWorkspace({
     }, [exam.id]);
     console.log("showPracticePage:", showPracticePage);
     useEffect(() => {
-
         if (!exam?.id) return;
 
-        fetch(
-            `http://localhost:8000/exams/${exam.id}/analytics`
-        )
-            .then((res) => res.json())
-            .then((data) =>
-                setAnalytics(data)
-            );
+        const controller = new AbortController();
+        setAnalytics(null);
+        setAnalyticsError(null);
 
-    }, [exam]);
+        async function loadAnalytics() {
+            try {
+                const response = await fetch(
+                    `http://localhost:8000/exams/${exam.id}/analytics`,
+                    { signal: controller.signal }
+                );
+
+                if (!response.ok) {
+                    throw new Error("Failed to load analytics");
+                }
+
+                setAnalytics(await response.json());
+            } catch (error) {
+                if (error.name !== "AbortError") {
+                    console.error(error);
+                    setAnalyticsError("Unable to load analytics.");
+                }
+            }
+        }
+
+        loadAnalytics();
+
+        return () => controller.abort();
+    }, [exam?.id]);
     if (showPracticePage) {
         return (
             <PracticePaper
@@ -393,16 +413,6 @@ export default function ExamWorkspace({
         (doc) => doc.document_type === "pyq"
     );
 
-    if (showSubjectiveTest) {
-        return (
-            <SubjectiveMockTest
-                exam={exam}
-                onBack={() =>
-                    setShowSubjectiveTest(false)
-                }
-            />
-        );
-    }
     if (showLearningRoadmap) {
         return (
             <LearningRoadmap
@@ -462,6 +472,13 @@ export default function ExamWorkspace({
                     🎯 {exam.name}
                 </h1>
                 {
+                    analyticsError && !analytics && (
+                        <p style={{ color: "#f59e0b" }}>
+                            {analyticsError}
+                        </p>
+                    )
+                }
+                {
                     analytics && (
                         <div
                             className="card"
@@ -499,6 +516,11 @@ export default function ExamWorkspace({
                                 }
                                 %
                             </p>
+                            {analyticsError && (
+                                <p style={{ color: "#f59e0b" }}>
+                                    {analyticsError}
+                                </p>
+                            )}
 
                             <p>
                                 Latest Score:

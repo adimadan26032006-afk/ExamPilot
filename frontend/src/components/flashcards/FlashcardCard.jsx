@@ -60,6 +60,7 @@ export default function FlashcardCard({ flashcards }) {
                 </h2>
 
                 <div
+                    className={`flashcard-face ${showAnswer ? "is-answer" : ""}`}
                     style={{
                         minHeight: "300px",
                         padding: "35px",
