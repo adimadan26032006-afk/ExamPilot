@@ -1,6 +1,6 @@
 import json
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from services.session_service import create_session
 
@@ -16,6 +16,8 @@ from services.ai_services import (
     generate_quiz,
     generate_flashcards,
     ask_ai,
+    extract_pyq_questions,
+    solve_pyq_question,
 )
 from services.retrieval_service import retrieve_relevant_chunks
 from services.document_service import get_document_by_id
@@ -41,7 +43,8 @@ class FlashcardRequest(BaseModel):
     document_id: int
 class CreateSessionRequest(BaseModel):
     document_id: int
-
+class SolveQuestionRequest(BaseModel):
+    question: str
 # ==========================================
 # Shared Document Helper
 # ==========================================
@@ -342,6 +345,54 @@ def ask_ai_endpoint(request: ChatRequest):
         "answer": answer
     }
 
+@router.get("/documents/{document_id}/questions")
+def get_pyq_questions(document_id: int):
+    db = SessionLocal()
+
+    try:
+        document = db.query(Upload).filter(
+            Upload.id == document_id,
+            Upload.document_type == "pyq",
+        ).first()
+
+        if document is None:
+            raise HTTPException(
+                status_code=404,
+                detail="PYQ document not found.",
+            )
+
+        extracted_text = get_document_text(document_id, db)
+        if not extracted_text or not extracted_text.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="This PYQ has no extracted text.",
+            )
+
+        result = extract_pyq_questions(extracted_text)
+        if "error" in result:
+            raise HTTPException(status_code=503, detail=result["error"])
+
+        return {
+            "document_id": document_id,
+            "questions": result["questions"],
+        }
+    finally:
+        db.close()
+
+@router.post("/pyq/solve-question")
+def solve_pyq_question_endpoint(request: SolveQuestionRequest):
+    question = request.question.strip()
+    if not question:
+        raise HTTPException(
+            status_code=400,
+            detail="Question cannot be empty.",
+        )
+
+    result = solve_pyq_question(question)
+    if "error" in result:
+        raise HTTPException(status_code=503, detail=result["error"])
+
+    return result
 @router.get("/chat-sessions/{document_id}")
 def get_chat_sessions(document_id: int):
 

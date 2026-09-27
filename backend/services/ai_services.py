@@ -790,6 +790,123 @@ def analyze_exam_pattern(pyq_text: str):
             "error": "The AI returned an invalid analysis format."
         }
 
+
+def _parse_json_response(response, log_prefix: str):
+    import json
+    if response is None:
+        return {
+            "error": "Gemini is temporarily unavailable. Please try again in a minute."
+        }
+
+    response = response.strip()
+
+    if response.startswith("```json"):
+        response = response[len("```json"):].strip()
+    elif response.startswith("```"):
+        response = response[3:].strip()
+
+    if response.endswith("```"):
+        response = response[:-3].strip()
+
+    try:
+        return json.loads(response)
+    except json.JSONDecodeError:
+        print(f"[{log_prefix}] Gemini returned invalid JSON.")
+        print(f"[{log_prefix}] Raw response:")
+        print(response)
+        return {
+            "error": "The AI returned an invalid response format."
+        }
+
+
+def extract_pyq_questions(extracted_text: str):
+    prompt = f'''You are ExamPilot, an exam-preparation assistant.
+
+Extract the individual questions from the previous-year question paper below.
+Preserve the original wording as closely as possible. Do not solve, summarize,
+or invent questions. Ignore headings, instructions, marks, page numbers, and
+other non-question text.
+
+Return ONLY valid JSON. Do not use Markdown or a code block.
+Use exactly this structure:
+{{
+  "questions": [
+    {{
+      "id": 1,
+      "question": "Complete question text"
+    }}
+  ]
+}}
+
+If no questions can be identified, return {{"questions": []}}.
+
+Previous-year question paper:
+{extracted_text}
+'''
+
+    result = _parse_json_response(
+        _generate_with_retry(prompt),
+        "PYQ QUESTIONS",
+    )
+
+    if "error" in result:
+        return result
+    questions = result.get("questions")
+    if not isinstance(questions, list):
+        return {"error": "The AI returned an invalid questions format."}
+
+    normalized_questions = []
+    for index, item in enumerate(questions, start=1):
+        if isinstance(item, dict) and str(item.get("question", "")).strip():
+            normalized_questions.append({
+                "id": item.get("id") or index,
+                "question": str(item["question"]).strip(),
+            })
+
+    return {"questions": normalized_questions}
+
+
+def solve_pyq_question(question: str):
+    prompt = f'''You are ExamPilot, an expert university exam-preparation assistant.
+
+Solve the following previous-year exam question. Give a concise, accurate,
+exam-oriented response that a student can use when writing an answer.
+
+Return ONLY valid JSON. Do not use Markdown or a code block.
+Use exactly this structure:
+{{
+  "answer": "A clear model answer.",
+  "keywords": ["Important keyword 1", "Important keyword 2"],
+  "exam_tips": "Practical advice for scoring well on this question.",
+  "common_mistakes": "Common errors students should avoid."
+}}
+
+Question:
+{question}
+'''
+
+    result = _parse_json_response(
+        _generate_with_retry(prompt),
+        "PYQ SOLVE",
+    )
+
+    if "error" in result:
+        return result
+    if not isinstance(result.get("answer"), str):
+        return {"error": "The AI returned an invalid answer format."}
+
+    keywords = result.get("keywords", [])
+    if not isinstance(keywords, list):
+        keywords = []
+
+    return {
+        "answer": result["answer"].strip(),
+        "keywords": [str(keyword).strip() for keyword in keywords if str(keyword).strip()],
+        "exam_tips": str(result.get("exam_tips", "")).strip(),
+        "common_mistakes": str(result.get("common_mistakes", "")).strip(),
+    }
+
+
 def build_practice_paper_prompt(pyq_text: str, question_count: int, difficulty: str) -> str:
 
     return f"""

@@ -33,6 +33,12 @@ export default function ExamWorkspace({
     const navigate = useNavigate();
     const [showLearningRoadmap, setShowLearningRoadmap] =
         useState(false);
+    const [questionsByDocument, setQuestionsByDocument] = useState({});
+    const [loadingQuestions, setLoadingQuestions] = useState(null);
+    const [solvingQuestion, setSolvingQuestion] = useState(null);
+    const [solutionsByQuestion, setSolutionsByQuestion] = useState({});
+    const [pyqError, setPyqError] = useState(null);
+
     async function loadDocuments() {
 
         try {
@@ -63,6 +69,67 @@ export default function ExamWorkspace({
     useEffect(() => {
         loadDocuments();
     }, [exam.id]);
+
+    async function viewQuestions(documentId) {
+        setLoadingQuestions(documentId);
+        setPyqError(null);
+
+        try {
+            const response = await fetch(
+                `http://127.0.0.1:8000/documents/${documentId}/questions`
+            );
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.detail || "Failed to extract questions.");
+            }
+
+            setQuestionsByDocument((previous) => ({
+                ...previous,
+                [documentId]: data.questions || [],
+            }));
+        } catch (error) {
+            console.error(error);
+            setPyqError(error.message);
+        } finally {
+            setLoadingQuestions(null);
+        }
+    }
+
+    async function solveQuestion(documentId, question) {
+        const solutionKey = `${documentId}-${question.id}`;
+        setSolvingQuestion(solutionKey);
+        setPyqError(null);
+
+        try {
+            const response = await fetch(
+                "http://127.0.0.1:8000/pyq/solve-question",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ question: question.question }),
+                }
+            );
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.detail || "Failed to solve the question.");
+            }
+
+            setSolutionsByQuestion((previous) => ({
+                ...previous,
+                [solutionKey]: data,
+            }));
+        } catch (error) {
+            console.error(error);
+            setPyqError(error.message);
+        } finally {
+            setSolvingQuestion(null);
+        }
+    }
+
     console.log("showPracticePage:", showPracticePage);
     useEffect(() => {
         if (!exam?.id) return;
@@ -784,18 +851,85 @@ export default function ExamWorkspace({
                                             borderRadius: "8px",
                                         }}
                                     >
-
-                                        📄 {doc.filename}
-
                                         <div
                                             style={{
-                                                color: "#64748B",
-                                                fontSize: "13px",
-                                                marginTop: "4px",
+                                                display: "flex",
+                                                justifyContent: "space-between",
+                                                alignItems: "center",
+                                                gap: "12px",
                                             }}
                                         >
-                                            {doc.pages} pages
+                                            <div>
+                                                📄 {doc.filename}
+                                                <div
+                                                    style={{
+                                                        color: "#64748B",
+                                                        fontSize: "13px",
+                                                        marginTop: "4px",
+                                                    }}
+                                                >
+                                                    {doc.pages} pages
+                                                </div>
+                                            </div>
+
+                                            <button
+                                                onClick={() => viewQuestions(doc.id)}
+                                                disabled={loadingQuestions === doc.id}
+                                            >
+                                                {loadingQuestions === doc.id
+                                                    ? "Loading..."
+                                                    : "View Questions"}
+                                            </button>
                                         </div>
+
+                                        {questionsByDocument[doc.id] && (
+                                            <div style={{ marginTop: "15px" }}>
+                                                {questionsByDocument[doc.id].length === 0 ? (
+                                                    <p style={{ color: "#94A3B8" }}>
+                                                        No questions could be extracted from this PYQ.
+                                                    </p>
+                                                ) : (
+                                                    questionsByDocument[doc.id].map((question) => {
+                                                        const solution = solutionsByQuestion[`${doc.id}-${question.id}`];
+                                                        return (
+                                                            <div
+                                                                key={question.id}
+                                                                style={{
+                                                                    padding: "12px",
+                                                                    marginTop: "10px",
+                                                                    borderTop: "1px solid #263241",
+                                                                }}
+                                                            >
+                                                                <p style={{ margin: "0 0 10px" }}>
+                                                                    <strong>Q{question.id}.</strong> {question.question}
+                                                                </p>
+                                                                <button
+                                                                    onClick={() => solveQuestion(doc.id, question)}
+                                                                    disabled={solvingQuestion === `${doc.id}-${question.id}`}
+                                                                >
+                                                                    {solvingQuestion === `${doc.id}-${question.id}`
+                                                                        ? "Solving..."
+                                                                        : "Solve This PYQ"}
+                                                                </button>
+
+                                                                {solution && (
+                                                                    <div style={{ marginTop: "15px", color: "#D7E3EF" }}>
+                                                                        <h4>Model Answer</h4>
+                                                                        <p>{solution.answer}</p>
+                                                                        <h4>Important Keywords</h4>
+                                                                        <p>{solution.keywords?.join(", ") || "None provided"}</p>
+                                                                        <h4>Exam Tips</h4>
+                                                                        <p>{solution.exam_tips}</p>
+                                                                        <h4>Common Mistakes</h4>
+                                                                        <p>{solution.common_mistakes}</p>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })
+                                                )}
+                                            </div>
+                                        )}
 
                                     </div>
 
@@ -803,6 +937,12 @@ export default function ExamWorkspace({
 
                             </div>
 
+                        )}
+
+                        {pyqError && (
+                            <p style={{ color: "#F87171", marginTop: "15px" }}>
+                                {pyqError}
+                            </p>
                         )}
 
                         <input
